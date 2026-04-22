@@ -92,13 +92,16 @@ function formatTimeShort(t) {
   return t.toFixed(2) + "s";
 }
 
-// Color graduado según % pérdida: 0-1.5 bien, 1.5-3 atención, 3-5 alto, >5 crítico
+// Color graduado según % pérdida al estilo Google Sheets:
+//   0-1 excelente (verde), 1-2 bueno (lima), 2-3.5 normal (amarillo),
+//   3.5-5 atención (naranja), >5 crítico (rojo)
 function perdColor(p) {
   if (p == null) return "var(--dim)";
-  if (p < 1.5) return "var(--accent)";       // amarillo eléctrico - óptimo
-  if (p < 3) return "#fde047";                // amarillo medio
-  if (p < 5) return "#fb923c";                // naranja - atención
-  return "#ef4444";                           // rojo - crítico
+  if (p < 1) return "#22c55e";       // verde
+  if (p < 2) return "#84cc16";       // verde lima
+  if (p < 3.5) return "#facc15";     // amarillo
+  if (p < 5) return "#fb923c";       // naranja
+  return "#ef4444";                  // rojo
 }
 
 // Color graduado según RPE (1-10): 1-5 bajo, 6-7 medio, 8-9 alto, 10 máximo
@@ -187,6 +190,15 @@ export default function Dashboard() {
         const atleta = get(["ATLETA", "Atleta", "atleta"]);
         const fechaRaw = get(["FECHA", "Fecha", "fecha"]);
         const series = get(["SERIES", "Series"]);
+        // Buscar recuperación: cualquier cabecera que empiece por "REC" (REC, RECU, RECUP, RECUPERACIÓN, etc.)
+        let recuperacion = "";
+        for (const k of Object.keys(r)) {
+          const kNorm = String(k).trim().toUpperCase();
+          if (kNorm.startsWith("REC") && r[k] !== undefined && r[k] !== "") {
+            recuperacion = r[k];
+            break;
+          }
+        }
         const salida = get(["SALIDA", "Salida"]);
         const zap = get(["ZAPATILLAS", "Zapatillas"]);
         const rpeF = parseNumber(get(["RPE físico", "RPE fisico", "RPE físico ", "RPE Físico"]));
@@ -204,6 +216,7 @@ export default function Dashboard() {
           fecha: parseDate(fechaRaw),
           fechaRaw,
           series,
+          recuperacion,
           salida,
           zapatillas: zap,
           rpeF,
@@ -299,14 +312,79 @@ export default function Dashboard() {
     <div className="dashboard-root" style={styles.root}>
       <style>{cssText}</style>
 
+      {/* Fondo decorativo deportivo - capa detrás de todo el contenido */}
+      <div className="sports-bg" aria-hidden="true">
+        <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" style={styles.sportsBgSvg}>
+          <defs>
+            <linearGradient id="yellowWave" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#facc15" stopOpacity="0" />
+              <stop offset="40%" stopColor="#facc15" stopOpacity="0.85" />
+              <stop offset="60%" stopColor="#eab308" stopOpacity="0.85" />
+              <stop offset="100%" stopColor="#facc15" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="yellowWaveSmall" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#facc15" stopOpacity="0" />
+              <stop offset="50%" stopColor="#facc15" stopOpacity="0.6" />
+              <stop offset="100%" stopColor="#facc15" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          {/* Grupo superior derecho - líneas finas blancas como estelas de velocidad */}
+          <g opacity="0.18" stroke="#ffffff" strokeWidth="1" fill="none">
+            <path d="M 1440 -50 Q 1200 120 900 260 T 400 480" />
+            <path d="M 1440 -20 Q 1220 140 940 280 T 440 500" />
+            <path d="M 1440 10 Q 1240 160 980 300 T 480 520" />
+            <path d="M 1440 40 Q 1260 180 1020 320 T 520 540" />
+            <path d="M 1440 70 Q 1280 200 1060 340 T 560 560" />
+            <path d="M 1440 100 Q 1300 220 1100 360 T 600 580" />
+            <path d="M 1440 130 Q 1320 240 1140 380 T 640 600" />
+            <path d="M 1440 160 Q 1340 260 1180 400 T 680 620" />
+          </g>
+
+          {/* Swoosh amarillo grande - onda superior */}
+          <path
+            d="M -100 180 Q 400 -20 900 140 T 1540 100"
+            stroke="url(#yellowWave)"
+            strokeWidth="3"
+            fill="none"
+            opacity="0.35"
+          />
+
+          {/* Swoosh amarillo inferior - cruzando la parte baja */}
+          <path
+            d="M -100 820 Q 400 620 900 780 T 1540 720"
+            stroke="url(#yellowWave)"
+            strokeWidth="4"
+            fill="none"
+            opacity="0.28"
+          />
+
+          {/* Swoosh amarillo medio derecha */}
+          <path
+            d="M 600 500 Q 900 400 1200 450 T 1540 480"
+            stroke="url(#yellowWaveSmall)"
+            strokeWidth="2"
+            fill="none"
+            opacity="0.25"
+          />
+        </svg>
+      </div>
+
+      {/* Contenido principal */}
+      <div style={styles.content}>
+
       <header className="dashboard-header" style={styles.header}>
         <div className="dashboard-header-bar" style={styles.headerAccentBar} />
-        <div style={styles.headerLeft}>
-          <div className="dashboard-eyebrow" style={styles.eyebrow}>▸ TRACK &amp; FIELD · CONTROL</div>
-          <h1 className="dashboard-title" style={styles.title}>
-            <span style={styles.titleAccent}>TIEMPOS</span> ARRANZ
-          </h1>
-          <div className="dashboard-subtitle" style={styles.subtitle}>Panel de sesiones de entrenamiento</div>
+        <div className="dashboard-header-left" style={styles.headerLeft}>
+          <img src="/logo-sprint.png" alt="Sprint" className="dashboard-logo" style={styles.logo} />
+          <div style={{ minWidth: 0, flex: 1, textAlign: "center" }}>
+            <div className="dashboard-eyebrow" style={styles.eyebrow}>▸ TRACK &amp; FIELD · CONTROL</div>
+            <h1 className="dashboard-title" style={styles.title}>
+              <span style={styles.titleAccent}>TIEMPOS</span> ARRANZ
+            </h1>
+            <div className="dashboard-club" style={styles.club}>AGRUPACIÓN DEPORTIVA SPRINT</div>
+            <div className="dashboard-subtitle" style={styles.subtitle}>Panel de sesiones de entrenamiento</div>
+          </div>
         </div>
         <div className="dashboard-header-right" style={styles.headerRight}>
           <div className="dashboard-last-update" style={styles.lastUpdate}>
@@ -346,14 +424,6 @@ export default function Dashboard() {
               value={rpeGlobal != null ? rpeGlobal.toFixed(1) : "—"}
               suffix="/10"
               valueColor={rpeColor(rpeGlobal)}
-            />
-            <KPI
-              icon={<TrendingDown size={16} />}
-              label="% Pérdida"
-              value={perdGlobal != null ? perdGlobal.toFixed(2) : "—"}
-              suffix="%"
-              accent
-              valueColor={perdColor(perdGlobal)}
             />
           </section>
 
@@ -538,6 +608,7 @@ export default function Dashboard() {
           </footer>
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -742,11 +813,19 @@ function SessionCard({ r, showAthlete }) {
         </div>
       </div>
 
-      {/* Título de la sesión (series) */}
-      <div className="session-series" style={styles.sessionSeries}>{r.series || "—"}</div>
+      {/* Título de la sesión (series) + recuperación al lado */}
+      <div className="session-series-wrap" style={styles.sessionSeriesWrap}>
+        <div className="session-series" style={styles.sessionSeries}>{r.series || "—"}</div>
+        {r.recuperacion && (
+          <div className="session-recu" style={styles.sessionRecu}>
+            <span style={styles.sessionRecuLabel}>REC</span>
+            <span style={styles.sessionRecuValue}>{r.recuperacion}</span>
+          </div>
+        )}
+      </div>
 
       {/* Contenido principal: reps + lateral RPE */}
-      <div className="session-body" style={styles.sessionBody}>
+      <div className="session-body" style={{ ...styles.sessionBody, position: "relative", zIndex: 1 }}>
         <div style={styles.sessionRepsWrap}>
           {/* Bloque 1 */}
           <BlockRow
@@ -816,7 +895,7 @@ function BlockRow({ label, reps, maxT, dist, media, perd }) {
           return (
             <div key={i} className="rep-pill" style={styles.repPill}>
               <div className="rep-num" style={styles.repNum}>T{rep.idx + 1}</div>
-              <div className="rep-time" style={{ ...styles.repTime, color: isBest ? "var(--accent)" : "var(--text)" }}>
+              <div className="rep-time" style={styles.repTime}>
                 {formatTimeShort(rep.t)}
               </div>
               <div style={styles.repBarTrack}>
@@ -824,9 +903,7 @@ function BlockRow({ label, reps, maxT, dist, media, perd }) {
                   style={{
                     ...styles.repBarFill,
                     width: pct + "%",
-                    background: isBest
-                      ? "var(--accent)"
-                      : "linear-gradient(90deg, rgba(212,255,46,0.4), rgba(249,115,22,0.6))",
+                    background: "linear-gradient(90deg, rgba(250,204,21,0.5), rgba(249,115,22,0.6))",
                   }}
                 />
               </div>
@@ -908,6 +985,17 @@ const cssText = `
   .pulse { animation: pulse 2s ease-in-out infinite; }
   table tbody tr:hover { background: rgba(250,204,21,0.04); }
 
+  /* Fondo deportivo decorativo */
+  .sports-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+
   /* Tablet */
   @media (max-width: 900px) {
     .charts-grid { grid-template-columns: 1fr !important; }
@@ -917,22 +1005,25 @@ const cssText = `
   /* Móvil */
   @media (max-width: 640px) {
     .dashboard-root { padding: 14px 10px 40px !important; }
-    .dashboard-header { padding-bottom: 14px !important; padding-left: 12px !important; margin-bottom: 18px !important; flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
-    .dashboard-header-bar { bottom: 14px !important; width: 3px !important; }
+    .dashboard-header { padding-bottom: 14px !important; margin-bottom: 18px !important; gap: 10px !important; }
+    .dashboard-header-left { gap: 10px !important; flex-direction: column !important; }
+    .dashboard-logo { height: 56px !important; }
     .dashboard-title { font-size: 26px !important; line-height: 1 !important; }
+    .dashboard-club { font-size: 9px !important; letter-spacing: 0.3em !important; margin-top: 6px !important; }
     .dashboard-eyebrow { font-size: 9px !important; letter-spacing: 0.2em !important; margin-bottom: 6px !important; }
     .dashboard-subtitle { display: none !important; }
-    .dashboard-header-right { flex-direction: row !important; justify-content: flex-end !important; align-items: center !important; gap: 10px !important; }
-    .dashboard-last-update { text-align: right !important; font-size: 10px !important; flex: 1; min-width: 0; }
+    .dashboard-header-right { flex-direction: row !important; justify-content: center !important; align-items: center !important; gap: 10px !important; }
+    .dashboard-last-update { text-align: center !important; font-size: 10px !important; }
     .dashboard-refresh-btn { padding: 7px 12px !important; font-size: 10px !important; letter-spacing: 0.05em !important; }
     .dashboard-refresh-btn span { display: none !important; }
 
     .kpi-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; margin-bottom: 20px !important; }
+    .kpi-grid > div:last-child { grid-column: 1 / -1; }
     .kpi { padding: 10px 12px !important; }
     .kpi-value { font-size: 22px !important; }
     .kpi-label { font-size: 9px !important; letter-spacing: 0.05em !important; margin-bottom: 6px !important; }
 
-    .filter-bar { margin-bottom: 20px !important; max-width: none !important; }
+    .filter-bar { margin-bottom: 20px !important; max-width: none !important; padding: 11px 13px 9px !important; }
     .section { margin-bottom: 26px !important; }
     .section-title { font-size: 15px !important; margin-bottom: 12px !important; gap: 8px !important; flex-wrap: wrap !important; }
     .section-num { font-size: 10px !important; padding: 2px 6px !important; }
@@ -950,16 +1041,18 @@ const cssText = `
     /* Tarjetas de sesión */
     .session-card { padding: 12px 14px !important; gap: 10px !important; }
     .session-athlete { font-size: 16px !important; }
-    .session-date { font-size: 10px !important; }
-    .session-series { font-size: 14px !important; padding-bottom: 8px !important; }
+    .session-date { font-size: 11px !important; }
+    .session-series { font-size: 20px !important; }
+    .session-series-wrap { padding-bottom: 10px !important; gap: 8px !important; }
+    .session-recu { padding: 4px 8px !important; gap: 6px !important; }
     .session-body { grid-template-columns: 1fr !important; gap: 12px !important; }
-    .session-rpe { flex-direction: row !important; padding-left: 0 !important; padding-top: 10px !important; border-left: none !important; border-top: 1px solid var(--line); gap: 20px !important; }
+    .session-rpe { flex-direction: row !important; padding: 10px 12px !important; border-top: 1px solid rgba(250,204,21,0.15); gap: 18px !important; }
     .rpe-block { flex: 1; }
-    .rpe-value { font-size: 18px !important; }
-    .reps-line { grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)) !important; gap: 4px !important; }
-    .rep-pill { padding: 6px 6px 5px !important; }
-    .rep-time { font-size: 12px !important; }
-    .rep-num { font-size: 8px !important; }
+    .rpe-value { font-size: 20px !important; }
+    .reps-line { grid-template-columns: repeat(auto-fit, minmax(62px, 1fr)) !important; gap: 5px !important; }
+    .rep-pill { padding: 8px 8px 6px !important; }
+    .rep-time { font-size: 14px !important; }
+    .rep-num { font-size: 9px !important; }
     .block-header { font-size: 10px !important; gap: 8px !important; }
     .block-dist { font-size: 9px !important; padding: 2px 5px !important; }
     .session-comment { font-size: 11px !important; padding: 7px 10px !important; }
@@ -980,31 +1073,47 @@ const styles = {
     fontFamily: "'Inter', system-ui, sans-serif",
     padding: "28px 24px 60px",
     fontFeatureSettings: '"tnum" 1, "ss01" 1',
+    position: "relative",
+    overflow: "hidden",
+  },
+  sportsBgSvg: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+  content: {
+    position: "relative",
+    zIndex: 1,
   },
   header: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    flexWrap: "wrap",
-    gap: 16,
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 14,
     borderBottom: "1px solid var(--line)",
     paddingBottom: 24,
-    paddingLeft: 18,
     marginBottom: 32,
     position: "relative",
   },
   headerAccentBar: {
-    position: "absolute",
-    left: 0,
-    top: 4,
-    bottom: 24,
-    width: 4,
-    background: "var(--accent)",
-    boxShadow: "0 0 12px rgba(250,204,21,0.4)",
+    display: "none",
   },
   headerLeft: {
-    flex: 1,
-    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 22,
+    width: "100%",
+    maxWidth: 900,
+  },
+  logo: {
+    height: 68,
+    width: "auto",
+    flexShrink: 0,
+    filter: "drop-shadow(0 0 12px rgba(250,204,21,0.25))",
   },
   eyebrow: {
     fontSize: 10,
@@ -1013,6 +1122,7 @@ const styles = {
     fontWeight: 700,
     marginBottom: 8,
     fontFamily: "'JetBrains Mono', monospace",
+    textAlign: "center",
   },
   title: {
     margin: 0,
@@ -1026,8 +1136,18 @@ const styles = {
     color: "var(--accent)",
     textShadow: "0 0 24px rgba(250,204,21,0.3)",
   },
+  club: {
+    marginTop: 8,
+    color: "var(--accent)",
+    fontSize: 11,
+    letterSpacing: "0.35em",
+    fontWeight: 700,
+    fontFamily: "'JetBrains Mono', monospace",
+    textTransform: "uppercase",
+    opacity: 0.85,
+  },
   subtitle: {
-    marginTop: 10,
+    marginTop: 6,
     color: "var(--dim)",
     fontSize: 13,
     letterSpacing: "0.02em",
@@ -1036,6 +1156,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: 12,
+    marginTop: 4,
   },
   lastUpdate: {
     fontSize: 11,
@@ -1082,7 +1203,7 @@ const styles = {
   },
   kpiGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(4, 1fr)",
+    gridTemplateColumns: "repeat(3, 1fr)",
     gap: 12,
     marginBottom: 32,
   },
@@ -1125,14 +1246,21 @@ const styles = {
   filterBar: {
     marginBottom: 32,
     maxWidth: 460,
+    padding: "14px 16px 12px",
+    background: "rgba(250,204,21,0.04)",
+    border: "1px solid rgba(250,204,21,0.45)",
+    borderRadius: 3,
+    boxShadow: "0 0 0 1px rgba(250,204,21,0.15), 0 0 20px rgba(250,204,21,0.2), inset 0 0 20px rgba(250,204,21,0.04)",
   },
   filterLabel: {
     display: "block",
     fontSize: 10,
-    letterSpacing: "0.2em",
-    color: "var(--dim)",
+    letterSpacing: "0.25em",
+    color: "var(--accent)",
+    fontWeight: 700,
     marginBottom: 8,
     fontFamily: "'JetBrains Mono', monospace",
+    textShadow: "0 0 8px rgba(250,204,21,0.5)",
   },
   selectWrap: {
     position: "relative",
@@ -1472,6 +1600,7 @@ const styles = {
   sessionCard: {
     background: "var(--panel)",
     border: "1px solid var(--line)",
+    borderLeft: "3px solid var(--accent)",
     borderRadius: 2,
     padding: "16px 18px",
     display: "flex",
@@ -1486,13 +1615,17 @@ const styles = {
     alignItems: "flex-start",
     gap: 12,
     flexWrap: "wrap",
+    position: "relative",
+    zIndex: 1,
   },
   sessionDate: {
-    fontSize: 11,
-    color: "var(--dim)",
+    fontSize: 12,
+    color: "var(--accent)",
     fontFamily: "'JetBrains Mono', monospace",
-    letterSpacing: "0.05em",
+    letterSpacing: "0.1em",
     textTransform: "uppercase",
+    fontWeight: 700,
+    opacity: 0.95,
   },
   sessionAthlete: {
     fontSize: 18,
@@ -1516,18 +1649,58 @@ const styles = {
     letterSpacing: "0.05em",
     fontWeight: 500,
   },
+  sessionSeriesWrap: {
+    position: "relative",
+    paddingBottom: 12,
+    borderBottom: "1px dashed rgba(250,204,21,0.15)",
+    zIndex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 14,
+    flexWrap: "wrap",
+  },
   sessionSeries: {
-    fontSize: 16,
-    fontWeight: 700,
+    fontSize: 24,
+    fontWeight: 900,
     color: "var(--accent)",
     fontFamily: "'JetBrains Mono', monospace",
+    letterSpacing: "-0.03em",
+    fontStyle: "italic",
+    position: "relative",
+    zIndex: 1,
+    lineHeight: 1.05,
+    minWidth: 0,
+    flex: "0 0 auto",
+  },
+  sessionRecu: {
+    display: "inline-flex",
+    alignItems: "baseline",
+    gap: 7,
+    background: "rgba(34,211,238,0.08)",
+    border: "1px solid rgba(34,211,238,0.25)",
+    padding: "5px 10px 5px 9px",
+    borderRadius: 2,
+    flexShrink: 0,
+  },
+  sessionRecuLabel: {
+    fontSize: 9,
+    color: "var(--accent-2)",
+    fontFamily: "'JetBrains Mono', monospace",
+    letterSpacing: "0.15em",
+    fontWeight: 700,
+    opacity: 0.9,
+  },
+  sessionRecuValue: {
+    fontSize: 14,
+    fontFamily: "'JetBrains Mono', monospace",
+    fontWeight: 700,
+    color: "#e0e7ea",
     letterSpacing: "-0.01em",
-    paddingBottom: 10,
-    borderBottom: "1px dashed rgba(255,255,255,0.08)",
   },
   sessionBody: {
     display: "grid",
-    gridTemplateColumns: "1fr 120px",
+    gridTemplateColumns: "1fr 130px",
     gap: 16,
     alignItems: "start",
   },
@@ -1578,35 +1751,36 @@ const styles = {
   },
   repsLine: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(68px, 1fr))",
-    gap: 6,
+    gridTemplateColumns: "repeat(auto-fit, minmax(76px, 1fr))",
+    gap: 7,
   },
   repPill: {
-    background: "rgba(255,255,255,0.03)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: 2,
-    padding: "8px 8px 6px",
+    background: "rgba(250,204,21,0.04)",
+    border: "1px solid rgba(250,204,21,0.18)",
+    borderRadius: 3,
+    padding: "10px 10px 8px",
     display: "flex",
     flexDirection: "column",
-    gap: 6,
+    gap: 7,
     minWidth: 0,
   },
   repNum: {
-    fontSize: 9,
-    color: "var(--dim)",
+    fontSize: 10,
+    color: "var(--accent)",
     fontFamily: "'JetBrains Mono', monospace",
-    letterSpacing: "0.1em",
-    fontWeight: 600,
+    letterSpacing: "0.12em",
+    fontWeight: 700,
+    opacity: 0.7,
   },
   repTime: {
-    fontSize: 13,
-    fontWeight: 700,
+    fontSize: 16,
+    fontWeight: 800,
     fontFamily: "'JetBrains Mono', monospace",
     letterSpacing: "-0.02em",
   },
   repBarTrack: {
-    height: 3,
-    background: "rgba(255,255,255,0.05)",
+    height: 4,
+    background: "rgba(255,255,255,0.06)",
     borderRadius: 2,
     overflow: "hidden",
   },
@@ -1617,63 +1791,70 @@ const styles = {
   sessionRpe: {
     display: "flex",
     flexDirection: "column",
-    gap: 10,
-    paddingLeft: 14,
-    borderLeft: "1px solid var(--line)",
+    gap: 12,
+    padding: "12px 12px",
+    background: "rgba(255,255,255,0.02)",
+    border: "1px solid rgba(250,204,21,0.15)",
+    borderRadius: 3,
+    alignSelf: "stretch",
   },
   rpeBlock: {
     display: "flex",
     flexDirection: "column",
-    gap: 4,
+    gap: 5,
   },
   rpeLabel: {
     fontSize: 9,
-    color: "var(--dim)",
-    letterSpacing: "0.15em",
+    color: "var(--accent)",
+    letterSpacing: "0.18em",
     textTransform: "uppercase",
     fontFamily: "'JetBrains Mono', monospace",
-    fontWeight: 600,
+    fontWeight: 700,
+    opacity: 0.85,
   },
   rpeValue: {
-    fontSize: 22,
-    fontWeight: 700,
+    fontSize: 26,
+    fontWeight: 800,
     fontFamily: "'JetBrains Mono', monospace",
-    letterSpacing: "-0.02em",
+    letterSpacing: "-0.03em",
     lineHeight: 1,
   },
   rpeMax: {
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--dim)",
-    marginLeft: 2,
+    marginLeft: 3,
     fontWeight: 400,
   },
   rpeDots: {
     display: "grid",
     gridTemplateColumns: "repeat(10, 1fr)",
     gap: 2,
-    marginTop: 2,
+    marginTop: 4,
   },
   rpeDot: {
-    height: 4,
+    height: 5,
     borderRadius: 1,
   },
   sessionComment: {
-    background: "rgba(34,211,238,0.04)",
-    border: "1px solid rgba(34,211,238,0.15)",
+    background: "rgba(34,197,94,0.07)",
+    border: "1px solid rgba(34,197,94,0.25)",
+    borderLeft: "3px solid #22c55e",
     borderRadius: 2,
-    padding: "8px 12px",
-    fontSize: 12,
-    color: "#c7d2da",
-    fontStyle: "italic",
-    lineHeight: 1.5,
+    padding: "10px 14px",
+    fontSize: 13,
+    color: "#dcefe1",
+    fontStyle: "normal",
+    lineHeight: 1.55,
     position: "relative",
   },
   commentQuote: {
-    color: "var(--accent-2)",
-    fontSize: 18,
+    color: "#4ade80",
+    fontSize: 20,
     fontWeight: 700,
-    marginRight: 6,
+    marginRight: 8,
     fontStyle: "normal",
+    verticalAlign: "-4px",
+    opacity: 0.85,
   },
 
   chartsGrid: {
