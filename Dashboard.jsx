@@ -92,25 +92,59 @@ function formatTimeShort(t) {
   return t.toFixed(2) + "s";
 }
 
+// Muestra un valor tal cual vino de la hoja (sin redondeos), limpiando espacios,
+// traduciendo vacíos a guión, y convirtiendo puntos decimales a comas (formato español).
+// No toca los apóstrofes de minutos (ej. 1'16,50 se mantiene igual).
+function showRaw(v) {
+  if (v == null) return "—";
+  let s = String(v).trim();
+  if (s === "" || s === "#N/A" || s === "#DIV/0!") return "—";
+  // Si contiene '.' y no es un año/fecha (no tiene '/' ni barras), convertir a coma
+  if (s.includes(".") && !s.includes("/") && !s.includes(":")) {
+    s = s.replace(/\./g, ",");
+  }
+  return s;
+}
+
 // Color graduado según % pérdida al estilo Google Sheets:
 //   0-1 excelente (verde), 1-2 bueno (lima), 2-3.5 normal (amarillo),
 //   3.5-5 atención (naranja), >5 crítico (rojo)
+// Versión para fondo oscuro (KPIs globales, perfil del atleta): tonos claros/saturados
 function perdColor(p) {
-  if (p == null) return "var(--dim)";
-  if (p < 1) return "#22c55e";       // verde
-  if (p < 2) return "#84cc16";       // verde lima
-  if (p < 3.5) return "#facc15";     // amarillo
-  if (p < 5) return "#fb923c";       // naranja
-  return "#ef4444";                  // rojo
+  if (p == null) return "#6b7280";
+  if (p < 1) return "#22c55e";
+  if (p < 2) return "#84cc16";
+  if (p < 3.5) return "#facc15";
+  if (p < 5) return "#fb923c";
+  return "#ef4444";
 }
 
-// Color graduado según RPE (1-10): 1-5 bajo, 6-7 medio, 8-9 alto, 10 máximo
+// Versión para fondo blanco (tarjetas de sesión): tonos oscurecidos para buen contraste
+function perdColorLight(p) {
+  if (p == null) return "#6b7280";
+  if (p < 1) return "#15803d";
+  if (p < 2) return "#65a30d";
+  if (p < 3.5) return "#ca8a04";
+  if (p < 5) return "#ea580c";
+  return "#dc2626";
+}
+
+// Color RPE — fondo oscuro
 function rpeColor(v) {
-  if (v == null) return "var(--dim)";
-  if (v <= 5) return "var(--accent)";         // amarillo eléctrico
-  if (v <= 7) return "#fde047";                // amarillo medio
-  if (v <= 9) return "#fb923c";                // naranja
-  return "#ef4444";                            // rojo
+  if (v == null) return "#6b7280";
+  if (v <= 5) return "#22c55e";
+  if (v <= 7) return "#facc15";
+  if (v <= 9) return "#fb923c";
+  return "#ef4444";
+}
+
+// Color RPE — fondo blanco
+function rpeColorLight(v) {
+  if (v == null) return "#6b7280";
+  if (v <= 5) return "#15803d";
+  if (v <= 7) return "#ca8a04";
+  if (v <= 9) return "#ea580c";
+  return "#dc2626";
 }
 
 export default function Dashboard() {
@@ -120,6 +154,7 @@ export default function Dashboard() {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedAthlete, setSelectedAthlete] = useState("__ALL__");
+  const [selectedYear, setSelectedYear] = useState("__ALL__");
   const [refreshing, setRefreshing] = useState(false);
 
   const [fetchMethod, setFetchMethod] = useState(null);
@@ -201,16 +236,23 @@ export default function Dashboard() {
         }
         const salida = get(["SALIDA", "Salida"]);
         const zap = get(["ZAPATILLAS", "Zapatillas"]);
-        const rpeF = parseNumber(get(["RPE físico", "RPE fisico", "RPE físico ", "RPE Físico"]));
-        const rpeM = parseNumber(get(["RPE mental", "RPE Mental"]));
+        const rpeFRaw = get(["RPE físico", "RPE fisico", "RPE físico ", "RPE Físico"]);
+        const rpeMRaw = get(["RPE mental", "RPE Mental"]);
+        const rpeF = parseNumber(rpeFRaw);
+        const rpeM = parseNumber(rpeMRaw);
         const comentarios = get(["COMENTARIOS", "Comentarios"]);
-        const perd1 = parsePercent(get(["% PÉRDIDA 1", "% PERDIDA 1", "%PÉRDIDA 1"]));
-        const perd2 = parsePercent(get(["% PÉRDIDA 2", "% PERDIDA 2"]));
-        const media1 = parseTime(get(["MEDIA 1"]));
-        const media2 = parseTime(get(["MEDIA 2"]));
+        const perd1Raw = get(["% PÉRDIDA 1", "% PERDIDA 1", "%PÉRDIDA 1"]);
+        const perd2Raw = get(["% PÉRDIDA 2", "% PERDIDA 2"]);
+        const perd1 = parsePercent(perd1Raw);
+        const perd2 = parsePercent(perd2Raw);
+        const media1Raw = get(["MEDIA 1"]);
+        const media2Raw = get(["MEDIA 2"]);
+        const media1 = parseTime(media1Raw);
+        const media2 = parseTime(media2Raw);
         const dist1 = parseNumber(get(["DIST 1"]));
         const dist2 = parseNumber(get(["DIST 2"]));
-        const tiempos = ["T1", "T2", "T3", "T4", "T5", "T6", "T7"].map((k) => parseTime(get([k])));
+        const tiemposRaw = ["T1", "T2", "T3", "T4", "T5", "T6", "T7"].map((k) => get([k]));
+        const tiempos = tiemposRaw.map((v) => parseTime(v));
         return {
           atleta: String(atleta).trim(),
           fecha: parseDate(fechaRaw),
@@ -224,11 +266,18 @@ export default function Dashboard() {
           comentarios,
           perd1,
           perd2,
+          perd1Raw,
+          perd2Raw,
           media1,
           media2,
+          media1Raw,
+          media2Raw,
           dist1,
           dist2,
           tiempos,
+          tiemposRaw,
+          rpeFRaw,
+          rpeMRaw,
           _raw: r,
         };
       })
@@ -240,10 +289,22 @@ export default function Dashboard() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
   }, [normalized]);
 
+  // Años disponibles en los datos (extraídos de la fecha)
+  const years = useMemo(() => {
+    const set = new Set();
+    for (const r of normalized) {
+      if (r.fecha) set.add(r.fecha.getFullYear());
+    }
+    return Array.from(set).sort((a, b) => b - a); // más recientes primero
+  }, [normalized]);
+
   const filtered = useMemo(() => {
-    if (selectedAthlete === "__ALL__") return normalized;
-    return normalized.filter((r) => r.atleta === selectedAthlete);
-  }, [normalized, selectedAthlete]);
+    return normalized.filter((r) => {
+      if (selectedAthlete !== "__ALL__" && r.atleta !== selectedAthlete) return false;
+      if (selectedYear !== "__ALL__" && (!r.fecha || r.fecha.getFullYear() !== selectedYear)) return false;
+      return true;
+    });
+  }, [normalized, selectedAthlete, selectedYear]);
 
   // Resumen por atleta (se muestra siempre, pero resalta el seleccionado)
   const summary = useMemo(() => {
@@ -257,6 +318,27 @@ export default function Dashboard() {
         const rpes = arr.map((x) => x.rpeF).filter((v) => v != null);
         const rpesM = arr.map((x) => x.rpeM).filter((v) => v != null);
         const perds = arr.flatMap((x) => [x.perd1, x.perd2].filter((v) => v != null));
+
+        // Calcular medias por distancia (agrupa DIST 1 con MEDIA 1 y DIST 2 con MEDIA 2)
+        const mediasPorDist = new Map();
+        for (const r of arr) {
+          if (r.dist1 != null && r.media1 != null) {
+            if (!mediasPorDist.has(r.dist1)) mediasPorDist.set(r.dist1, []);
+            mediasPorDist.get(r.dist1).push(r.media1);
+          }
+          if (r.dist2 != null && r.media2 != null) {
+            if (!mediasPorDist.has(r.dist2)) mediasPorDist.set(r.dist2, []);
+            mediasPorDist.get(r.dist2).push(r.media2);
+          }
+        }
+        const distancias = Array.from(mediasPorDist.entries())
+          .map(([dist, medias]) => ({
+            dist,
+            media: medias.reduce((a, b) => a + b, 0) / medias.length,
+            n: medias.length,
+          }))
+          .sort((a, b) => a.dist - b.dist); // ordenar por distancia ascendente
+
         return {
           nombre,
           sesiones: arr.length,
@@ -264,20 +346,20 @@ export default function Dashboard() {
           rpeM: rpesM.length ? rpesM.reduce((a, b) => a + b, 0) / rpesM.length : null,
           perdMedia: perds.length ? perds.reduce((a, b) => a + b, 0) / perds.length : null,
           ultima: arr.map((x) => x.fecha).filter(Boolean).sort((a, b) => b - a)[0] || null,
+          distancias,
         };
       })
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [normalized]);
 
-  // Últimas sesiones (ordenadas por fecha desc)
+  // Sesiones ordenadas por fecha desc (todas las filtradas, sin límite)
   const recent = useMemo(() => {
     return [...filtered]
       .sort((a, b) => {
         const da = a.fecha ? a.fecha.getTime() : 0;
         const db = b.fecha ? b.fecha.getTime() : 0;
         return db - da;
-      })
-      .slice(0, 15);
+      });
   }, [filtered]);
 
   // Evolución para gráficos (solo tiene sentido cuando hay un atleta seleccionado, si no, agregar global)
@@ -376,8 +458,8 @@ export default function Dashboard() {
       <header className="dashboard-header" style={styles.header}>
         <div className="dashboard-header-bar" style={styles.headerAccentBar} />
         <div className="dashboard-header-left" style={styles.headerLeft}>
-          <img src="/logo-sprint.png" alt="Sprint" className="dashboard-logo" style={styles.logo} />
-          <div style={{ minWidth: 0, flex: 1, textAlign: "center" }}>
+          <img src="/logo.png" alt="Sprint" className="dashboard-logo" style={styles.logo} />
+          <div style={{ minWidth: 0, textAlign: "center" }}>
             <div className="dashboard-eyebrow" style={styles.eyebrow}>▸ TRACK &amp; FIELD · CONTROL</div>
             <h1 className="dashboard-title" style={styles.title}>
               <span style={styles.titleAccent}>TIEMPOS</span> ARRANZ
@@ -427,14 +509,46 @@ export default function Dashboard() {
             />
           </section>
 
-          {/* Selector de atleta */}
+          {/* Selectores de filtro */}
           <section className="filter-bar" style={styles.filterBar}>
-            <AthleteSelect
-              athletes={athletes}
-              value={selectedAthlete}
-              onChange={setSelectedAthlete}
-              summary={summary}
-            />
+            <div style={styles.filtersRow}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <AthleteSelect
+                  athletes={athletes}
+                  value={selectedAthlete}
+                  onChange={setSelectedAthlete}
+                  summary={summary}
+                />
+              </div>
+              <div style={styles.yearFilter}>
+                <label style={styles.filterLabel}>AÑO</label>
+                <div style={styles.yearChips}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedYear("__ALL__")}
+                    style={{
+                      ...styles.yearChip,
+                      ...(selectedYear === "__ALL__" ? styles.yearChipActive : {}),
+                    }}
+                  >
+                    Todos
+                  </button>
+                  {years.map((y) => (
+                    <button
+                      key={y}
+                      type="button"
+                      onClick={() => setSelectedYear(y)}
+                      style={{
+                        ...styles.yearChip,
+                        ...(selectedYear === y ? styles.yearChipActive : {}),
+                      }}
+                    >
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* Sección 1: Perfil del atleta (solo al filtrar) */}
@@ -490,19 +604,6 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div style={styles.profileStat}>
-                        <div style={styles.profileStatLabel}>% Pérdida media</div>
-                        <div
-                          className="profile-stat-val"
-                          style={{
-                            ...styles.profileStatVal,
-                            color: perdColor(s.perdMedia),
-                          }}
-                        >
-                          {s.perdMedia != null ? s.perdMedia.toFixed(2) : "—"}
-                          <span style={styles.profileStatSuffix}>%</span>
-                        </div>
-                      </div>
-                      <div style={styles.profileStat}>
                         <div style={styles.profileStatLabel}>Última sesión</div>
                         <div className="profile-stat-val profile-stat-val-date" style={{ ...styles.profileStatVal, fontSize: 20 }}>
                           {formatDate(s.ultima)}
@@ -521,10 +622,14 @@ export default function Dashboard() {
               <span className="section-num" style={styles.sectionNum}>
                 {selectedAthlete !== "__ALL__" ? "02" : "01"}
               </span>{" "}
-              Últimas sesiones
+              Sesiones
               {selectedAthlete !== "__ALL__" && (
                 <span className="filter-tag" style={styles.filterTag}>· {selectedAthlete}</span>
               )}
+              {selectedYear !== "__ALL__" && (
+                <span className="filter-tag" style={styles.filterTag}>· {selectedYear}</span>
+              )}
+              <span style={styles.sessionsCount}>{recent.length}</span>
             </h2>
             <div className="sessions-grid" style={styles.sessionsGrid}>
               {recent.map((r, i) => (
@@ -547,6 +652,9 @@ export default function Dashboard() {
               Evolución en el tiempo
               {selectedAthlete !== "__ALL__" && (
                 <span className="filter-tag" style={styles.filterTag}>· {selectedAthlete}</span>
+              )}
+              {selectedYear !== "__ALL__" && (
+                <span className="filter-tag" style={styles.filterTag}>· {selectedYear}</span>
               )}
             </h2>
 
@@ -765,8 +873,9 @@ function AthleteSelect({ athletes, value, onChange, summary }) {
 
 function SessionCard({ r, showAthlete }) {
   // Filtrar los tiempos válidos y prepararlos para mostrar
+  // Guardamos el valor parseado (t) y el valor original tal cual está en la hoja (raw)
   const reps = r.tiempos
-    .map((t, idx) => ({ t, idx }))
+    .map((t, idx) => ({ t, raw: r.tiemposRaw ? r.tiemposRaw[idx] : null, idx }))
     .filter((x) => x.t != null && !isNaN(x.t));
 
   // Dividir en bloques según media1 / media2 + dist1 / dist2
@@ -834,7 +943,9 @@ function SessionCard({ r, showAthlete }) {
             maxT={maxT1}
             dist={r.dist1}
             media={r.media1}
+            mediaRaw={r.media1Raw}
             perd={r.perd1}
+            perdRaw={r.perd1Raw}
           />
           {/* Bloque 2 si existe */}
           {bloque2.length > 0 && (
@@ -844,15 +955,41 @@ function SessionCard({ r, showAthlete }) {
               maxT={maxT2}
               dist={r.dist2}
               media={r.media2}
+              mediaRaw={r.media2Raw}
               perd={r.perd2}
+              perdRaw={r.perd2Raw}
             />
           )}
         </div>
 
-        {/* Lateral RPE */}
+        {/* Lateral RPE + distancias/medias */}
         <div className="session-rpe" style={styles.sessionRpe}>
-          <RpeBar label="Físico" value={r.rpeF} bars={rpeFBars} color={rpeColor(r.rpeF)} />
-          <RpeBar label="Mental" value={r.rpeM} bars={rpeMBars} color={rpeColor(r.rpeM)} />
+          <RpeBar label="Físico" value={r.rpeF} raw={r.rpeFRaw} bars={rpeFBars} color={rpeColorLight(r.rpeF)} />
+          <RpeBar label="Mental" value={r.rpeM} raw={r.rpeMRaw} bars={rpeMBars} color={rpeColorLight(r.rpeM)} />
+
+          {/* Mini-panel: distancias y medias de esta sesión */}
+          {(r.dist1 != null || r.dist2 != null) && (
+            <div style={styles.sessionDistPanel}>
+              {r.dist1 != null && (
+                <div style={styles.sessionDistRow}>
+                  <span style={styles.sessionDistD}>{r.dist1}m</span>
+                  <span style={styles.sessionDistArrow}>⟶</span>
+                  <span style={styles.sessionDistM}>
+                    {r.media1Raw ? showRaw(r.media1Raw) : (r.media1 != null ? formatTimeShort(r.media1).replace(/\./g, ",") : "—")}
+                  </span>
+                </div>
+              )}
+              {r.dist2 != null && (
+                <div style={styles.sessionDistRow}>
+                  <span style={styles.sessionDistD}>{r.dist2}m</span>
+                  <span style={styles.sessionDistArrow}>⟶</span>
+                  <span style={styles.sessionDistM}>
+                    {r.media2Raw ? showRaw(r.media2Raw) : (r.media2 != null ? formatTimeShort(r.media2).replace(/\./g, ",") : "—")}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -867,24 +1004,24 @@ function SessionCard({ r, showAthlete }) {
   );
 }
 
-function BlockRow({ label, reps, maxT, dist, media, perd }) {
+function BlockRow({ label, reps, maxT, dist, media, mediaRaw, perd, perdRaw }) {
   if (!reps.length) return null;
   return (
     <div style={styles.blockRow}>
       <div className="block-header" style={styles.blockHeader}>
         <span style={styles.blockLabel}>{label}</span>
         {dist != null && <span className="block-dist" style={styles.blockDist}>{dist}m</span>}
-        {media != null && (
-          <span style={styles.blockMedia}>media {formatTimeShort(media)}</span>
+        {(mediaRaw || media != null) && (
+          <span style={styles.blockMedia}>media {showRaw(mediaRaw) !== "—" ? showRaw(mediaRaw) : formatTimeShort(media)}</span>
         )}
-        {perd != null && (
+        {(perdRaw || perd != null) && (
           <span
             style={{
               ...styles.blockPerd,
-              color: perdColor(perd),
+              color: perdColorLight(perd),
             }}
           >
-            −{perd.toFixed(1)}%
+            {showRaw(perdRaw) !== "—" ? showRaw(perdRaw) : "−" + perd + "%"}
           </span>
         )}
       </div>
@@ -896,7 +1033,7 @@ function BlockRow({ label, reps, maxT, dist, media, perd }) {
             <div key={i} className="rep-pill" style={styles.repPill}>
               <div className="rep-num" style={styles.repNum}>T{rep.idx + 1}</div>
               <div className="rep-time" style={styles.repTime}>
-                {formatTimeShort(rep.t)}
+                {rep.raw ? showRaw(rep.raw) : formatTimeShort(rep.t)}
               </div>
               <div style={styles.repBarTrack}>
                 <div
@@ -915,12 +1052,12 @@ function BlockRow({ label, reps, maxT, dist, media, perd }) {
   );
 }
 
-function RpeBar({ label, value, bars, color }) {
+function RpeBar({ label, value, raw, bars, color }) {
   return (
     <div className="rpe-block" style={styles.rpeBlock}>
       <div style={styles.rpeLabel}>RPE {label}</div>
       <div className="rpe-value" style={{ ...styles.rpeValue, color: value != null ? color : "var(--text)" }}>
-        {value != null ? value : "—"}
+        {raw ? showRaw(raw) : (value != null ? value : "—")}
         <span style={styles.rpeMax}>/10</span>
       </div>
       <div style={styles.rpeDots}>
@@ -929,7 +1066,7 @@ function RpeBar({ label, value, bars, color }) {
             key={i}
             style={{
               ...styles.rpeDot,
-              background: i < bars ? color : "rgba(255,255,255,0.08)",
+              background: i < bars ? color : "rgba(0,0,0,0.12)",
             }}
           />
         ))}
@@ -1006,8 +1143,8 @@ const cssText = `
   @media (max-width: 640px) {
     .dashboard-root { padding: 14px 10px 40px !important; }
     .dashboard-header { padding-bottom: 14px !important; margin-bottom: 18px !important; gap: 10px !important; }
-    .dashboard-header-left { gap: 10px !important; flex-direction: column !important; }
-    .dashboard-logo { height: 56px !important; }
+    .dashboard-header-left { gap: 10px !important; }
+    .dashboard-logo { height: 72px !important; }
     .dashboard-title { font-size: 26px !important; line-height: 1 !important; }
     .dashboard-club { font-size: 9px !important; letter-spacing: 0.3em !important; margin-top: 6px !important; }
     .dashboard-eyebrow { font-size: 9px !important; letter-spacing: 0.2em !important; margin-bottom: 6px !important; }
@@ -1103,17 +1240,18 @@ const styles = {
   },
   headerLeft: {
     display: "flex",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: 22,
+    gap: 14,
     width: "100%",
     maxWidth: 900,
   },
   logo: {
-    height: 68,
+    height: 96,
     width: "auto",
     flexShrink: 0,
-    filter: "drop-shadow(0 0 12px rgba(250,204,21,0.25))",
+    filter: "drop-shadow(0 0 18px rgba(250,204,21,0.35))",
   },
   eyebrow: {
     fontSize: 10,
@@ -1245,12 +1383,47 @@ const styles = {
   },
   filterBar: {
     marginBottom: 32,
-    maxWidth: 460,
+    maxWidth: 860,
     padding: "14px 16px 12px",
     background: "rgba(250,204,21,0.04)",
     border: "1px solid rgba(250,204,21,0.45)",
     borderRadius: 3,
     boxShadow: "0 0 0 1px rgba(250,204,21,0.15), 0 0 20px rgba(250,204,21,0.2), inset 0 0 20px rgba(250,204,21,0.04)",
+  },
+  filtersRow: {
+    display: "flex",
+    gap: 20,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+  },
+  yearFilter: {
+    minWidth: 240,
+    flexShrink: 0,
+  },
+  yearChips: {
+    display: "flex",
+    gap: 5,
+    flexWrap: "wrap",
+    paddingTop: 2,
+  },
+  yearChip: {
+    background: "transparent",
+    border: "1px solid rgba(250,204,21,0.25)",
+    color: "var(--dim)",
+    padding: "7px 11px",
+    borderRadius: 2,
+    fontSize: 12,
+    cursor: "pointer",
+    fontFamily: "'JetBrains Mono', monospace",
+    fontWeight: 700,
+    letterSpacing: "0.05em",
+    transition: "all 0.15s",
+  },
+  yearChipActive: {
+    background: "var(--accent)",
+    color: "#000",
+    borderColor: "var(--accent)",
+    boxShadow: "0 0 8px rgba(250,204,21,0.3)",
   },
   filterLabel: {
     display: "block",
@@ -1429,6 +1602,17 @@ const styles = {
     fontWeight: 500,
     marginLeft: 4,
   },
+  sessionsCount: {
+    marginLeft: "auto",
+    fontSize: 11,
+    color: "var(--dim)",
+    fontFamily: "'JetBrains Mono', monospace",
+    background: "rgba(255,255,255,0.04)",
+    padding: "3px 9px",
+    borderRadius: 2,
+    letterSpacing: "0.05em",
+    fontWeight: 600,
+  },
   summaryGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
@@ -1591,6 +1775,40 @@ const styles = {
     fontWeight: 400,
   },
 
+  // Mini-panel de distancia-media dentro de cada tarjeta (debajo del RPE)
+  sessionDistPanel: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTop: "1px solid rgba(0,0,0,0.1)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+  },
+  sessionDistRow: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 12,
+  },
+  sessionDistD: {
+    color: "#b45309",
+    fontWeight: 800,
+    minWidth: 40,
+  },
+  sessionDistArrow: {
+    color: "#78716c",
+    fontSize: 14,
+    fontWeight: 700,
+    letterSpacing: "-0.05em",
+    margin: "0 2px",
+  },
+  sessionDistM: {
+    color: "#0a0b0d",
+    fontWeight: 700,
+    flex: 1,
+  },
+
   // === Session cards ===
   sessionsGrid: {
     display: "grid",
@@ -1598,8 +1816,8 @@ const styles = {
     gap: 14,
   },
   sessionCard: {
-    background: "var(--panel)",
-    border: "1px solid var(--line)",
+    background: "#fafafa",
+    border: "1px solid rgba(0,0,0,0.08)",
     borderLeft: "3px solid var(--accent)",
     borderRadius: 2,
     padding: "16px 18px",
@@ -1608,6 +1826,8 @@ const styles = {
     gap: 12,
     position: "relative",
     overflow: "hidden",
+    color: "#1a1a1a",
+    boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
   },
   sessionHeader: {
     display: "flex",
@@ -1620,18 +1840,19 @@ const styles = {
   },
   sessionDate: {
     fontSize: 12,
-    color: "var(--accent)",
+    color: "#b45309",
     fontFamily: "'JetBrains Mono', monospace",
     letterSpacing: "0.1em",
     textTransform: "uppercase",
     fontWeight: 700,
-    opacity: 0.95,
   },
   sessionAthlete: {
     fontSize: 18,
-    fontWeight: 700,
+    fontWeight: 800,
     marginTop: 2,
     letterSpacing: "-0.01em",
+    color: "#0a0b0d",
+    textTransform: "uppercase",
   },
   sessionBadges: {
     display: "flex",
@@ -1639,20 +1860,20 @@ const styles = {
     flexWrap: "wrap",
   },
   badge: {
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid var(--line)",
-    color: "var(--dim)",
+    background: "rgba(0,0,0,0.04)",
+    border: "1px solid rgba(0,0,0,0.1)",
+    color: "#4b5563",
     fontSize: 10,
     padding: "3px 8px",
     borderRadius: 2,
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    fontWeight: 500,
+    fontWeight: 600,
   },
   sessionSeriesWrap: {
     position: "relative",
     paddingBottom: 12,
-    borderBottom: "1px dashed rgba(250,204,21,0.15)",
+    borderBottom: "1px dashed rgba(0,0,0,0.12)",
     zIndex: 1,
     display: "flex",
     alignItems: "center",
@@ -1663,7 +1884,7 @@ const styles = {
   sessionSeries: {
     fontSize: 24,
     fontWeight: 900,
-    color: "var(--accent)",
+    color: "#0a0b0d",
     fontFamily: "'JetBrains Mono', monospace",
     letterSpacing: "-0.03em",
     fontStyle: "italic",
@@ -1677,25 +1898,24 @@ const styles = {
     display: "inline-flex",
     alignItems: "baseline",
     gap: 7,
-    background: "rgba(34,211,238,0.08)",
-    border: "1px solid rgba(34,211,238,0.25)",
+    background: "rgba(34,211,238,0.1)",
+    border: "1px solid rgba(6,182,212,0.4)",
     padding: "5px 10px 5px 9px",
     borderRadius: 2,
     flexShrink: 0,
   },
   sessionRecuLabel: {
     fontSize: 9,
-    color: "var(--accent-2)",
+    color: "#0891b2",
     fontFamily: "'JetBrains Mono', monospace",
     letterSpacing: "0.15em",
     fontWeight: 700,
-    opacity: 0.9,
   },
   sessionRecuValue: {
     fontSize: 14,
     fontFamily: "'JetBrains Mono', monospace",
     fontWeight: 700,
-    color: "#e0e7ea",
+    color: "#0e7490",
     letterSpacing: "-0.01em",
   },
   sessionBody: {
@@ -1725,27 +1945,27 @@ const styles = {
   blockLabel: {
     textTransform: "uppercase",
     letterSpacing: "0.1em",
-    color: "var(--dim)",
-    fontWeight: 600,
+    color: "#6b7280",
+    fontWeight: 700,
     fontFamily: "'JetBrains Mono', monospace",
   },
   blockDist: {
-    background: "rgba(212,255,46,0.12)",
-    color: "var(--accent)",
+    background: "#ca8a04",
+    color: "#fff",
     padding: "2px 7px",
     borderRadius: 2,
-    fontWeight: 700,
+    fontWeight: 800,
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 10,
   },
   blockMedia: {
-    color: "var(--text)",
+    color: "#374151",
     fontFamily: "'JetBrains Mono', monospace",
-    opacity: 0.7,
+    fontWeight: 600,
   },
   blockPerd: {
     fontFamily: "'JetBrains Mono', monospace",
-    fontWeight: 700,
+    fontWeight: 800,
     marginLeft: "auto",
     fontSize: 12,
   },
@@ -1755,32 +1975,33 @@ const styles = {
     gap: 7,
   },
   repPill: {
-    background: "rgba(250,204,21,0.04)",
-    border: "1px solid rgba(250,204,21,0.18)",
+    background: "#ffffff",
+    border: "1px solid rgba(202,138,4,0.3)",
     borderRadius: 3,
     padding: "10px 10px 8px",
     display: "flex",
     flexDirection: "column",
     gap: 7,
     minWidth: 0,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
   },
   repNum: {
     fontSize: 10,
-    color: "var(--accent)",
+    color: "#ca8a04",
     fontFamily: "'JetBrains Mono', monospace",
     letterSpacing: "0.12em",
     fontWeight: 700,
-    opacity: 0.7,
   },
   repTime: {
     fontSize: 16,
     fontWeight: 800,
     fontFamily: "'JetBrains Mono', monospace",
     letterSpacing: "-0.02em",
+    color: "#0a0b0d",
   },
   repBarTrack: {
     height: 4,
-    background: "rgba(255,255,255,0.06)",
+    background: "rgba(0,0,0,0.08)",
     borderRadius: 2,
     overflow: "hidden",
   },
@@ -1793,8 +2014,8 @@ const styles = {
     flexDirection: "column",
     gap: 12,
     padding: "12px 12px",
-    background: "rgba(255,255,255,0.02)",
-    border: "1px solid rgba(250,204,21,0.15)",
+    background: "rgba(250,204,21,0.08)",
+    border: "1px solid rgba(202,138,4,0.35)",
     borderRadius: 3,
     alignSelf: "stretch",
   },
@@ -1804,13 +2025,12 @@ const styles = {
     gap: 5,
   },
   rpeLabel: {
-    fontSize: 9,
-    color: "var(--accent)",
-    letterSpacing: "0.18em",
+    fontSize: 10,
+    color: "#b45309",
+    letterSpacing: "0.15em",
     textTransform: "uppercase",
     fontFamily: "'JetBrains Mono', monospace",
-    fontWeight: 700,
-    opacity: 0.85,
+    fontWeight: 900,
   },
   rpeValue: {
     fontSize: 26,
@@ -1821,9 +2041,9 @@ const styles = {
   },
   rpeMax: {
     fontSize: 12,
-    color: "var(--dim)",
+    color: "#6b7280",
     marginLeft: 3,
-    fontWeight: 400,
+    fontWeight: 500,
   },
   rpeDots: {
     display: "grid",
@@ -1836,25 +2056,25 @@ const styles = {
     borderRadius: 1,
   },
   sessionComment: {
-    background: "rgba(34,197,94,0.07)",
-    border: "1px solid rgba(34,197,94,0.25)",
-    borderLeft: "3px solid #22c55e",
+    background: "rgba(34,197,94,0.1)",
+    border: "1px solid rgba(34,197,94,0.35)",
+    borderLeft: "3px solid #16a34a",
     borderRadius: 2,
     padding: "10px 14px",
     fontSize: 13,
-    color: "#dcefe1",
+    color: "#14532d",
     fontStyle: "normal",
     lineHeight: 1.55,
     position: "relative",
+    fontWeight: 500,
   },
   commentQuote: {
-    color: "#4ade80",
+    color: "#16a34a",
     fontSize: 20,
-    fontWeight: 700,
+    fontWeight: 800,
     marginRight: 8,
     fontStyle: "normal",
     verticalAlign: "-4px",
-    opacity: 0.85,
   },
 
   chartsGrid: {
