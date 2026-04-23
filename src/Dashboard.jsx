@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Papa from "papaparse";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { RefreshCw, Activity, Users, TrendingDown, Clock, Search, ChevronDown, X } from "lucide-react";
+import { RefreshCw, Activity, Users, TrendingDown, Clock, Search, ChevronDown, X, Zap, Timer } from "lucide-react";
 
 const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRF971GUDMgBYnATdkyyxfizaxojZnkggtN8ra33NCORUO-XSDX--kL0MSYh8aMo6yOkUJQ63pVDqpP/pub?output=csv";
+const JUMPS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRF971GUDMgBYnATdkyyxfizaxojZnkggtN8ra33NCORUO-XSDX--kL0MSYh8aMo6yOkUJQ63pVDqpP/pub?gid=381658321&single=true&output=csv";
 const REFRESH_MS = 60 * 1000; // 60 segundos
 
 // Parsea un tiempo en formato "19.05", "17"4", "1'16,50", "1.16,50", etc. a segundos (número)
@@ -147,8 +148,34 @@ function rpeColorLight(v) {
   return "#dc2626";
 }
 
+// Parser genérico para números de la hoja de saltos (admite coma o punto decimal)
+function parseJumpNumber(raw) {
+  if (raw == null) return null;
+  const s = String(raw).replace(",", ".").trim();
+  if (!s || s === "#N/A" || s === "#DIV/0!") return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+// Mensajes graciosos según la prueba en la que se hizo marca personal
+const PR_MESSAGES = {
+  cmj: "¡Estás como un cohete! Con ese CMJ te sales de la pista, ¿lo tuyo es triple salto ya?",
+  sj: "¡Madre mía el SJ! Si sigues así, te va a recoger la ISS de paso",
+  rsi: "Ese RSI es de otra galaxia. Reactividad de saltamontes con turbo",
+  broad: "Con ese Broad Jump cruzas el foso entero. ¿Pruebas longitud?",
+};
+
+// Devuelve color segun ranking posicion
+function rankMedal(pos) {
+  if (pos === 1) return { icon: "👑", color: "#eab308" };
+  if (pos === 2) return { icon: "🥈", color: "#9ca3af" };
+  if (pos === 3) return { icon: "🥉", color: "#c2410c" };
+  return null;
+}
+
 export default function Dashboard() {
   const [rows, setRows] = useState([]);
+  const [jumpsRows, setJumpsRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -156,46 +183,60 @@ export default function Dashboard() {
   const [selectedAthlete, setSelectedAthlete] = useState("__ALL__");
   const [selectedYear, setSelectedYear] = useState("__ALL__");
   const [refreshing, setRefreshing] = useState(false);
+  const [view, setView] = useState("tiempos"); // "tiempos" | "saltos"
+  const [rankingMode, setRankingMode] = useState("historico"); // "historico" | "reciente"
 
   const [fetchMethod, setFetchMethod] = useState(null);
+
+  const fetchCsv = useCallback(async (url) => {
+    const cacheBuster = (url.includes("?") ? "&" : "?") + "_=" + Date.now();
+    const directUrl = url + cacheBuster;
+    const attempts = [
+      { name: "directo", url: directUrl },
+      { name: "corsproxy.io", url: "https://corsproxy.io/?" + encodeURIComponent(directUrl) },
+      { name: "allorigins", url: "https://api.allorigins.win/raw?url=" + encodeURIComponent(directUrl) },
+      { name: "codetabs", url: "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(directUrl) },
+    ];
+    const errors = [];
+    for (const a of attempts) {
+      try {
+        const res = await fetch(a.url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const t = await res.text();
+        if (!t || t.length < 10) throw new Error("respuesta vacía");
+        return { text: t, method: a.name };
+      } catch (e) {
+        errors.push(a.name + ": " + (e.message || e));
+      }
+    }
+    throw new Error("Todos los métodos fallaron → " + errors.join(" | "));
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
       setRefreshing(true);
-      // Cache buster para evitar caché del navegador
-      const cacheBuster = "&_=" + Date.now();
-      const directUrl = CSV_URL + cacheBuster;
-      // Lista de estrategias con nombre para diagnóstico
-      const attempts = [
-        { name: "directo", url: directUrl },
-        { name: "corsproxy.io", url: "https://corsproxy.io/?" + encodeURIComponent(directUrl) },
-        { name: "allorigins", url: "https://api.allorigins.win/raw?url=" + encodeURIComponent(directUrl) },
-        { name: "codetabs", url: "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(directUrl) },
-      ];
+      // Cargar las dos hojas en paralelo
+      const [timesResult, jumpsResult] = await Promise.allSettled([
+        fetchCsv(CSV_URL),
+        fetchCsv(JUMPS_CSV_URL),
+      ]);
 
-      let text = null;
-      let usedMethod = null;
-      const errors = [];
-      for (const a of attempts) {
-        try {
-          const res = await fetch(a.url);
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const t = await res.text();
-          if (!t || t.length < 10) throw new Error("respuesta vacía");
-          text = t;
-          usedMethod = a.name;
-          break;
-        } catch (e) {
-          errors.push(a.name + ": " + (e.message || e));
-        }
+      if (timesResult.status === "fulfilled") {
+        const parsed = Papa.parse(timesResult.value.text, { header: true, skipEmptyLines: true });
+        setHeaders(parsed.meta.fields || []);
+        setRows(parsed.data || []);
+        setFetchMethod(timesResult.value.method);
+      } else if (rows.length === 0) {
+        // Solo dar error si no tenemos datos de antes
+        throw timesResult.reason;
       }
-      if (text == null) throw new Error("Todos los métodos fallaron → " + errors.join(" | "));
 
-      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-      setHeaders(parsed.meta.fields || []);
-      setRows(parsed.data || []);
+      if (jumpsResult.status === "fulfilled") {
+        const parsedJumps = Papa.parse(jumpsResult.value.text, { header: true, skipEmptyLines: true });
+        setJumpsRows(parsedJumps.data || []);
+      }
+
       setLastUpdate(new Date());
-      setFetchMethod(usedMethod);
       setError(null);
     } catch (e) {
       setError(e.message || "Error al cargar datos");
@@ -203,7 +244,7 @@ export default function Dashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchCsv, rows.length]);
 
   useEffect(() => {
     fetchData();
@@ -283,6 +324,119 @@ export default function Dashboard() {
       })
       .filter((r) => r.atleta); // descartar filas sin atleta
   }, [rows]);
+
+
+  const jumps = useMemo(() => {
+    return jumpsRows
+      .map((r) => {
+        // Buscar columnas por nombre tolerante
+        const get = (keys) => {
+          for (const k of keys) {
+            if (r[k] !== undefined && r[k] !== "") return r[k];
+          }
+          // Búsqueda parcial (ignora mayúsculas/acentos/espacios)
+          const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+          for (const k of Object.keys(r)) {
+            const kN = norm(k);
+            for (const want of keys) {
+              if (kN.includes(norm(want))) {
+                if (r[k] !== undefined && r[k] !== "") return r[k];
+              }
+            }
+          }
+          return "";
+        };
+        const atleta = get(["NOMBRE", "Nombre", "nombre"]);
+        const fechaRaw = get(["FECHA", "Fecha", "la que realiza"]);
+        const cmj = parseJumpNumber(get(["ALTURA CMJ", "CMJ", "altura cmj"]));
+        const sj = parseJumpNumber(get(["ALTURA SJ", "SJ", "altura sj"]));
+        const rsi = parseJumpNumber(get(["10-5 (RSI)", "10-5", "RSI", "105", "10-5 RSI"]));
+        const broad = parseJumpNumber(get(["BROAD JUMP - HORIZONTAL", "BROAD JUMP", "BROAD", "broad"]));
+        return {
+          atleta: String(atleta).trim(),
+          fecha: parseDate(fechaRaw),
+          fechaRaw,
+          cmj,
+          sj,
+          rsi,
+          broad,
+        };
+      })
+      .filter((r) => r.atleta && r.fecha); // descartar filas sin atleta o sin fecha
+  }, [jumpsRows]);
+
+  // ========== CÁLCULOS DE SALTOS ==========
+
+  // Por cada atleta: array de sus registros de salto ordenados cronológicamente
+  const jumpsByAthlete = useMemo(() => {
+    const byAth = new Map();
+    const sorted = [...jumps].sort((a, b) => a.fecha - b.fecha);
+    for (const r of sorted) {
+      if (!byAth.has(r.atleta)) byAth.set(r.atleta, []);
+      byAth.get(r.atleta).push(r);
+    }
+    return byAth;
+  }, [jumps]);
+
+  // Resumen por atleta: mejor histórico + última marca + si hizo PR en su último test
+  const jumpsAthleteStats = useMemo(() => {
+    const result = new Map();
+    for (const [atleta, arr] of jumpsByAthlete.entries()) {
+      const metrics = {};
+      for (const metric of ["cmj", "sj", "rsi", "broad"]) {
+        const valores = arr.map((r) => ({ v: r[metric], f: r.fecha })).filter((x) => x.v != null);
+        if (valores.length === 0) {
+          metrics[metric] = null;
+          continue;
+        }
+        let bestV = -Infinity, bestF = null;
+        for (const x of valores) {
+          if (x.v > bestV) { bestV = x.v; bestF = x.f; }
+        }
+        const last = valores[valores.length - 1];
+        const previos = valores.slice(0, -1);
+        const bestPrevio = previos.length ? Math.max(...previos.map((x) => x.v)) : -Infinity;
+        const pr = last.v > bestPrevio;
+        metrics[metric] = {
+          best: bestV,
+          bestDate: bestF,
+          last: last.v,
+          lastDate: last.f,
+          pr,
+          n: valores.length,
+        };
+      }
+      result.set(atleta, metrics);
+    }
+    return result;
+  }, [jumpsByAthlete]);
+
+  // Rankings (histórico = mejor de siempre; reciente = última marca) por cada prueba
+  const jumpsRankings = useMemo(() => {
+    const result = {};
+    for (const metric of ["cmj", "sj", "rsi", "broad"]) {
+      const historico = [];
+      const reciente = [];
+      for (const [atleta, metrics] of jumpsAthleteStats.entries()) {
+        const m = metrics[metric];
+        if (!m) continue;
+        historico.push({ atleta, valor: m.best, fecha: m.bestDate, pr: m.pr });
+        reciente.push({ atleta, valor: m.last, fecha: m.lastDate, pr: m.pr });
+      }
+      historico.sort((a, b) => b.valor - a.valor);
+      reciente.sort((a, b) => b.valor - a.valor);
+      result[metric] = { historico, reciente };
+    }
+    return result;
+  }, [jumpsAthleteStats]);
+
+  // Lista de atletas de saltos
+  const jumpAthletes = useMemo(() => {
+    return Array.from(jumpsByAthlete.keys()).sort((a, b) => a.localeCompare(b, "es"));
+  }, [jumpsByAthlete]);
+
+  // ========== FIN CÁLCULOS DE SALTOS ==========
+
 
   const athletes = useMemo(() => {
     const set = new Set(normalized.map((r) => r.atleta).filter(Boolean));
@@ -486,6 +640,24 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* Tabs de navegación: Tiempos / Saltos */}
+      <div className="view-tabs" style={styles.viewTabs}>
+        <button
+          onClick={() => { setView("tiempos"); setSelectedAthlete("__ALL__"); setSelectedYear("__ALL__"); }}
+          style={{ ...styles.viewTab, ...(view === "tiempos" ? styles.viewTabActive : {}) }}
+        >
+          <Timer size={16} />
+          <span>TIEMPOS</span>
+        </button>
+        <button
+          onClick={() => { setView("saltos"); setSelectedAthlete("__ALL__"); }}
+          style={{ ...styles.viewTab, ...(view === "saltos" ? styles.viewTabActive : {}) }}
+        >
+          <Zap size={16} />
+          <span>SALTOS</span>
+        </button>
+      </div>
+
       {error && (
         <div style={styles.errorBox}>
           Error al cargar: {error}. Reintentando automáticamente…
@@ -494,7 +666,7 @@ export default function Dashboard() {
 
       {loading && rows.length === 0 ? (
         <div style={styles.loading}>Cargando datos de la hoja...</div>
-      ) : (
+      ) : view === "tiempos" ? (
         <>
           {/* KPIs globales */}
           <section className="kpi-grid" style={styles.kpiGrid}>
@@ -715,11 +887,409 @@ export default function Dashboard() {
             )}
           </footer>
         </>
+      ) : (
+        /* ============ VISTA SALTOS ============ */
+        <>
+          <JumpsView
+            jumps={jumps}
+            jumpAthletes={jumpAthletes}
+            jumpsByAthlete={jumpsByAthlete}
+            jumpsAthleteStats={jumpsAthleteStats}
+            jumpsRankings={jumpsRankings}
+            selectedAthlete={selectedAthlete}
+            setSelectedAthlete={setSelectedAthlete}
+            rankingMode={rankingMode}
+            setRankingMode={setRankingMode}
+          />
+
+          <footer className="dashboard-footer" style={styles.footer}>
+            Fuente: Google Sheets publicado · Se actualiza automáticamente cada 60 s.
+          </footer>
+        </>
       )}
       </div>
     </div>
   );
 }
+
+// ============================================
+//              COMPONENTES DE SALTOS
+// ============================================
+
+const JUMP_METRICS = [
+  { key: "cmj", label: "CMJ", unit: "cm", fullLabel: "Altura CMJ" },
+  { key: "sj", label: "SJ", unit: "cm", fullLabel: "Altura SJ" },
+  { key: "rsi", label: "10-5 RSI", unit: "", fullLabel: "10-5 RSI" },
+  { key: "broad", label: "BROAD JUMP", unit: "cm", fullLabel: "Broad Jump (horizontal)" },
+];
+
+function JumpsView({ jumps, jumpAthletes, jumpsByAthlete, jumpsAthleteStats, jumpsRankings, selectedAthlete, setSelectedAthlete, rankingMode, setRankingMode }) {
+  // Si no hay datos, mensaje amable
+  if (!jumps || jumps.length === 0) {
+    return (
+      <div style={styles.loading}>
+        Cargando datos de saltos... (si este mensaje persiste, revisa que la hoja de saltos esté publicada).
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Filtro de atleta */}
+      <section className="filter-bar" style={styles.filterBar}>
+        <div style={styles.filtersRow}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <JumpsAthleteSelect
+              athletes={jumpAthletes}
+              value={selectedAthlete}
+              onChange={setSelectedAthlete}
+              stats={jumpsAthleteStats}
+            />
+          </div>
+        </div>
+      </section>
+
+      {selectedAthlete === "__ALL__" ? (
+        <JumpsRankings
+          rankings={jumpsRankings}
+          rankingMode={rankingMode}
+          setRankingMode={setRankingMode}
+        />
+      ) : (
+        <JumpsAthleteProfile
+          atleta={selectedAthlete}
+          registros={jumpsByAthlete.get(selectedAthlete) || []}
+          stats={jumpsAthleteStats.get(selectedAthlete) || {}}
+        />
+      )}
+    </>
+  );
+}
+
+function JumpsRankings({ rankings, rankingMode, setRankingMode }) {
+  return (
+    <>
+      {/* Selector modo ranking */}
+      <section style={{ marginBottom: 24 }}>
+        <div style={styles.rankModeSwitch}>
+          <button
+            onClick={() => setRankingMode("historico")}
+            style={{
+              ...styles.rankModeBtn,
+              ...(rankingMode === "historico" ? styles.rankModeBtnActive : {}),
+            }}
+          >
+            Ranking histórico
+          </button>
+          <button
+            onClick={() => setRankingMode("reciente")}
+            style={{
+              ...styles.rankModeBtn,
+              ...(rankingMode === "reciente" ? styles.rankModeBtnActive : {}),
+            }}
+          >
+            Ranking reciente
+          </button>
+        </div>
+        <div style={styles.rankModeHint}>
+          {rankingMode === "historico"
+            ? "Mejor marca histórica de cada atleta"
+            : "Última marca registrada de cada atleta"}
+        </div>
+      </section>
+
+      {/* 4 rankings, uno por prueba */}
+      <div style={styles.rankingsGrid}>
+        {JUMP_METRICS.map((m) => (
+          <RankingCard
+            key={m.key}
+            metric={m}
+            lista={rankings[m.key] ? rankings[m.key][rankingMode] : []}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function RankingCard({ metric, lista }) {
+  return (
+    <div style={styles.rankingCard}>
+      <div style={styles.rankingCardHeader}>
+        <div style={styles.rankingCardTitle}>{metric.fullLabel}</div>
+        <div style={styles.rankingCardCount}>{lista.length}</div>
+      </div>
+      <div style={styles.rankingList}>
+        {lista.length === 0 && (
+          <div style={{ padding: 12, textAlign: "center", opacity: 0.5, fontSize: 12 }}>Sin datos</div>
+        )}
+        {lista.map((r, i) => {
+          const pos = i + 1;
+          const medal = rankMedal(pos);
+          return (
+            <div key={r.atleta} style={{
+              ...styles.rankingRow,
+              ...(pos <= 3 ? styles.rankingRowTop : {}),
+            }}>
+              <div style={styles.rankingPos}>
+                {medal ? (
+                  <span style={{ fontSize: 18 }}>{medal.icon}</span>
+                ) : (
+                  <span style={styles.rankingPosNum}>{pos}</span>
+                )}
+              </div>
+              <div style={styles.rankingName}>{r.atleta}</div>
+              {r.pr && <span title="Marca personal reciente" style={{ fontSize: 14 }}>🔥</span>}
+              <div style={styles.rankingValue}>
+                {r.valor.toFixed(2).replace(".", ",")}
+                {metric.unit && <span style={styles.rankingUnit}>{metric.unit}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function JumpsAthleteProfile({ atleta, registros, stats }) {
+  // Detectar si hay al menos una PR en último test → mostrar mensaje gracioso
+  const prPruebas = JUMP_METRICS.filter((m) => stats[m.key]?.pr);
+
+  // Datos para gráficos por cada métrica
+  const buildChartData = (key) => {
+    return registros
+      .filter((r) => r[key] != null)
+      .map((r) => ({
+        fecha: r.fecha.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" }),
+        ts: r.fecha.getTime(),
+        valor: r[key],
+      }));
+  };
+
+  return (
+    <>
+      {/* Cabecera del perfil */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>
+          <span style={styles.sectionNum}>01</span> Perfil de saltos
+        </h2>
+        <div style={styles.profileCard}>
+          <div style={styles.profileStripe} />
+          <div className="profile-main" style={styles.profileMain}>
+            <div style={styles.profileNameRow}>
+              <div className="profile-initial" style={styles.profileInitial}>
+                {atleta.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div className="profile-label" style={styles.profileLabel}>ATLETA</div>
+                <div className="profile-name" style={styles.profileName}>{atleta}</div>
+              </div>
+            </div>
+            <div className="profile-stats" style={styles.profileStats}>
+              {JUMP_METRICS.map((m) => {
+                const s = stats[m.key];
+                if (!s) {
+                  return (
+                    <div key={m.key} style={styles.profileStat}>
+                      <div style={styles.profileStatLabel}>{m.label}</div>
+                      <div className="profile-stat-val" style={{ ...styles.profileStatVal, color: "#6b7280" }}>—</div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={m.key} style={styles.profileStat}>
+                    <div style={styles.profileStatLabel}>
+                      {m.label} {s.pr && <span style={{ marginLeft: 4 }}>🔥</span>}
+                    </div>
+                    <div className="profile-stat-val" style={{
+                      ...styles.profileStatVal,
+                      color: s.pr ? "#facc15" : undefined,
+                    }}>
+                      {s.best.toFixed(2).replace(".", ",")}
+                      <span style={styles.profileStatSuffix}>{m.unit || ""}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--dim)", marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
+                      último: {s.last.toFixed(2).replace(".", ",")}{m.unit}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Mensajes graciosos de PR */}
+      {prPruebas.length > 0 && (
+        <section style={styles.section}>
+          {prPruebas.map((m) => (
+            <div key={m.key} style={styles.prMessage}>
+              <span style={styles.prMessageIcon}>🚀</span>
+              <div>
+                <div style={styles.prMessageTitle}>¡MARCA PERSONAL EN {m.label}!</div>
+                <div style={styles.prMessageText}>{PR_MESSAGES[m.key]}</div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Gráficos de evolución */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>
+          <span style={styles.sectionNum}>02</span> Evolución
+          <span style={styles.filterTag}>· {atleta}</span>
+        </h2>
+        <div style={styles.chartsGrid}>
+          {JUMP_METRICS.map((m) => {
+            const data = buildChartData(m.key);
+            return (
+              <div key={m.key} style={styles.chartCard}>
+                <div style={styles.chartTitle}>{m.fullLabel} {m.unit && `(${m.unit})`}</div>
+                {data.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: "center", opacity: 0.4, fontSize: 12 }}>
+                    Sin datos
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={data} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                      <XAxis dataKey="fecha" stroke="#6b7280" fontSize={11} />
+                      <YAxis stroke="#6b7280" fontSize={11} domain={["auto", "auto"]} />
+                      <Tooltip contentStyle={tooltipStyle} />
+                      <Line type="monotone" dataKey="valor" name={m.label} stroke="#facc15" strokeWidth={2.5} dot={{ r: 4, fill: "#facc15" }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+}
+
+// Selector de atleta específico para saltos (similar al de tiempos pero con stats diferentes)
+function JumpsAthleteSelect({ athletes, value, onChange, stats }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (!e.target.closest("[data-jumps-athlete-select]")) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const normalize = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const q = normalize(query.trim());
+  const filteredList = q ? athletes.filter((a) => normalize(a).includes(q)) : athletes;
+
+  return (
+    <div data-jumps-athlete-select style={styles.selectWrap}>
+      <label style={styles.filterLabel}>ATLETA</label>
+      <div style={styles.selectRow}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          style={{
+            ...styles.selectBtn,
+            ...(value !== "__ALL__" ? styles.selectBtnActive : {}),
+          }}
+        >
+          <div style={styles.selectBtnLeft}>
+            {value === "__ALL__" ? (
+              <>
+                <Users size={14} style={{ opacity: 0.6 }} />
+                <span>Ranking general · {athletes.length} atletas</span>
+              </>
+            ) : (
+              <>
+                <span style={styles.selectDot} />
+                <span style={styles.selectSelectedName}>{value}</span>
+              </>
+            )}
+          </div>
+          <ChevronDown
+            size={16}
+            style={{
+              opacity: 0.5,
+              transform: open ? "rotate(180deg)" : "none",
+              transition: "transform 0.15s",
+            }}
+          />
+        </button>
+        {value !== "__ALL__" && (
+          <button
+            type="button"
+            onClick={() => onChange("__ALL__")}
+            style={styles.clearBtn}
+            title="Volver al ranking"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div style={styles.selectDropdown}>
+          <div style={styles.searchBox}>
+            <Search size={13} style={{ opacity: 0.5 }} />
+            <input
+              autoFocus
+              placeholder="Buscar atleta..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={styles.searchInput}
+            />
+          </div>
+          <div style={styles.selectList}>
+            <div
+              onClick={() => { onChange("__ALL__"); setOpen(false); setQuery(""); }}
+              style={{
+                ...styles.selectOption,
+                ...(value === "__ALL__" ? styles.selectOptionActive : {}),
+              }}
+            >
+              <Users size={13} style={{ opacity: 0.6 }} />
+              <span style={{ flex: 1 }}>Ranking general</span>
+              <span style={styles.selectOptionMeta}>{athletes.length}</span>
+            </div>
+            {filteredList.map((a) => {
+              const s = stats.get(a);
+              const isActive = value === a;
+              const hasAnyPR = s && Object.values(s).some((m) => m?.pr);
+              return (
+                <div
+                  key={a}
+                  onClick={() => { onChange(a); setOpen(false); setQuery(""); }}
+                  style={{
+                    ...styles.selectOption,
+                    ...(isActive ? styles.selectOptionActive : {}),
+                  }}
+                >
+                  <span style={{ flex: 1, fontWeight: 600 }}>{a}</span>
+                  {hasAnyPR && <span style={{ fontSize: 14 }}>🔥</span>}
+                </div>
+              );
+            })}
+            {filteredList.length === 0 && (
+              <div style={styles.selectEmpty}>Sin resultados</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+//           FIN COMPONENTES DE SALTOS
+// ============================================
 
 function AthleteSelect({ athletes, value, onChange, summary }) {
   const [open, setOpen] = useState(false);
@@ -1199,6 +1769,9 @@ const cssText = `
 
     /* Footer */
     .dashboard-footer { font-size: 10px !important; }
+
+    /* Tabs móvil */
+    .view-tabs button { padding: 10px 16px !important; font-size: 11px !important; letter-spacing: 0.1em !important; }
   }
 `;
 
@@ -2105,6 +2678,193 @@ const styles = {
     color: "var(--dim)",
     textAlign: "center",
     fontFamily: "'JetBrains Mono', monospace",
+  },
+
+  // ============== ESTILOS SALTOS ==============
+
+  // Tabs de navegación Tiempos / Saltos
+  viewTabs: {
+    display: "flex",
+    gap: 0,
+    marginBottom: 28,
+    borderBottom: "2px solid rgba(250,204,21,0.2)",
+    position: "relative",
+    zIndex: 2,
+  },
+  viewTab: {
+    background: "transparent",
+    border: "none",
+    borderBottom: "3px solid transparent",
+    color: "var(--dim)",
+    padding: "12px 24px",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    fontFamily: "'JetBrains Mono', monospace",
+    letterSpacing: "0.15em",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: -2,
+    transition: "all 0.2s",
+  },
+  viewTabActive: {
+    color: "var(--accent)",
+    borderBottom: "3px solid var(--accent)",
+    textShadow: "0 0 8px rgba(250,204,21,0.4)",
+  },
+
+  // Switch histórico / reciente
+  rankModeSwitch: {
+    display: "inline-flex",
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid var(--line)",
+    borderRadius: 3,
+    padding: 4,
+    gap: 2,
+  },
+  rankModeBtn: {
+    background: "transparent",
+    border: "none",
+    color: "var(--dim)",
+    padding: "8px 16px",
+    borderRadius: 2,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    letterSpacing: "0.03em",
+    transition: "all 0.15s",
+  },
+  rankModeBtnActive: {
+    background: "var(--accent)",
+    color: "#000",
+  },
+  rankModeHint: {
+    marginTop: 8,
+    fontSize: 11,
+    color: "var(--dim)",
+    letterSpacing: "0.04em",
+  },
+
+  // Grid de rankings (4 tarjetas)
+  rankingsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+    gap: 14,
+    marginBottom: 32,
+  },
+  rankingCard: {
+    background: "var(--panel)",
+    border: "1px solid var(--line)",
+    borderLeft: "3px solid var(--accent)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  rankingCardHeader: {
+    padding: "14px 16px 12px",
+    borderBottom: "1px dashed rgba(250,204,21,0.2)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  rankingCardTitle: {
+    fontSize: 14,
+    fontWeight: 900,
+    letterSpacing: "-0.01em",
+    textTransform: "uppercase",
+    color: "var(--text)",
+    fontFamily: "'JetBrains Mono', monospace",
+  },
+  rankingCardCount: {
+    fontSize: 10,
+    color: "var(--dim)",
+    fontFamily: "'JetBrains Mono', monospace",
+    background: "rgba(255,255,255,0.04)",
+    padding: "2px 8px",
+    borderRadius: 2,
+    fontWeight: 700,
+  },
+  rankingList: {
+    padding: "4px 0",
+  },
+  rankingRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "8px 16px",
+    borderBottom: "1px solid rgba(255,255,255,0.03)",
+  },
+  rankingRowTop: {
+    background: "rgba(250,204,21,0.03)",
+  },
+  rankingPos: {
+    width: 24,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  rankingPosNum: {
+    fontSize: 12,
+    color: "var(--dim)",
+    fontFamily: "'JetBrains Mono', monospace",
+    fontWeight: 700,
+  },
+  rankingName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--text)",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  rankingValue: {
+    fontSize: 15,
+    fontWeight: 800,
+    fontFamily: "'JetBrains Mono', monospace",
+    color: "var(--accent)",
+    letterSpacing: "-0.02em",
+  },
+  rankingUnit: {
+    fontSize: 10,
+    color: "var(--dim)",
+    marginLeft: 2,
+    fontWeight: 500,
+  },
+
+  // Mensaje PR gracioso
+  prMessage: {
+    background: "linear-gradient(135deg, rgba(250,204,21,0.12) 0%, rgba(250,204,21,0.04) 100%)",
+    border: "1px solid rgba(250,204,21,0.45)",
+    borderLeft: "4px solid var(--accent)",
+    borderRadius: 3,
+    padding: "14px 18px",
+    marginBottom: 10,
+    display: "flex",
+    gap: 14,
+    alignItems: "center",
+    boxShadow: "0 0 20px rgba(250,204,21,0.1)",
+  },
+  prMessageIcon: {
+    fontSize: 32,
+    flexShrink: 0,
+  },
+  prMessageTitle: {
+    fontSize: 12,
+    fontWeight: 900,
+    color: "var(--accent)",
+    letterSpacing: "0.15em",
+    fontFamily: "'JetBrains Mono', monospace",
+    marginBottom: 4,
+  },
+  prMessageText: {
+    fontSize: 14,
+    color: "var(--text)",
+    fontStyle: "italic",
+    lineHeight: 1.4,
   },
 };
 
